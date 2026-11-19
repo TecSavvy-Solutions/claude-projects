@@ -326,7 +326,7 @@ Run '7.4 Browser-Profile & Passwort-Manager-Spuren (nur Groessen)' {
         if (Test-Path $b[$k]) {
             $m = Get-ChildItem $b[$k] -Recurse -Force -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum
             "{0}: {1} MB  ({2})" -f $k, [math]::Round($m.Sum / 1MB, 0), $b[$k]
-        } else { "$k: nicht vorhanden" }
+        } else { "${k}: nicht vorhanden" }
     }
     'Hinweis: Lesezeichen/Passwoerter vor dem Wipe per Browser-Sync oder Export sichern.'
 }
