@@ -31,3 +31,26 @@ Dateiinhalte, Passwörter, Tokens, SSH-/Browser-/Passwort-Manager-Inhalte (nur E
 
 ## Danach
 Aus der Ausgabe entstehen: Backup-Liste (Git-sauber vs. nur lokal), Software-Mapping Windows → Linux, Pi-Konfiguration im Repo (ohne Secrets). Siehe Plan, Phasen 1–5.
+
+---
+
+# Phase 1 – Sicherung (`windows_backup.ps1`)
+
+Kopiert Ordner per `robocopy` auf ein Ziel (z. B. Samba-Freigabe), erstellt ein SHA256-Manifest und packt Secrets in ein verschlüsseltes 7-Zip-Paket.
+
+- **Quelle wird nie verändert oder gelöscht.**
+- **Standard = Trockenlauf** (zeigt nur Dateizahl/Bytes je Ordner). Kopiert wird erst mit `-Execute`.
+- Ordnerliste liegt in einer **lokalen** Config (`backup_config.psd1`, Vorlage `backup_config.example.psd1`) – die echte Config nicht in dieses öffentliche Repo legen.
+
+```powershell
+# 1. Trockenlauf
+powershell -ExecutionPolicy Bypass -File C:\Temp\windows_backup.ps1 -Config C:\Temp\backup_config.psd1 -Dest "\\HOST\SHARE\ZIELORDNER"
+# 2. Kopieren (erst wenn Trockenlauf plausibel und Platz am Ziel ausreicht)
+powershell -ExecutionPolicy Bypass -File C:\Temp\windows_backup.ps1 -Config C:\Temp\backup_config.psd1 -Dest "\\HOST\SHARE\ZIELORDNER" -Execute
+```
+
+Prüfung nach dem Kopieren (auf dem Zielrechner, im Zielordner):
+```bash
+sha256sum -c --quiet MANIFEST_sha256.txt   # keine Ausgabe = alles identisch
+```
+Logs: `C:\Temp\backup_summary_*.txt` (Zusammenfassung) und `C:\Temp\backup_robocopy_*.log`.
