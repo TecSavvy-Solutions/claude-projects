@@ -22,10 +22,24 @@ $roboLog = Join-Path $logDir ("backup_robocopy_{0}.log" -f $stamp)
 $sumLog  = Join-Path $logDir ("backup_summary_{0}.txt" -f $stamp)
 
 function Say([string]$s) { Write-Host $s; Add-Content -LiteralPath $sumLog -Value $s -Encoding UTF8 }
-function Expand-Path([string]$s) { return [Environment]::ExpandEnvironmentStrings($s) }
+# Platzhalter %VAR% per reiner String-Ersetzung aufloesen (keine .NET-Aufrufe, kein Namenskonflikt mit Cmdlets)
+$envTokens = @{
+    '%USERPROFILE%'  = $env:USERPROFILE
+    '%APPDATA%'      = $env:APPDATA
+    '%LOCALAPPDATA%' = $env:LOCALAPPDATA
+    '%TEMP%'         = $env:TEMP
+    '%COMPUTERNAME%' = $env:COMPUTERNAME
+}
+function Resolve-BackupPath([string]$raw) {
+    $out = $raw
+    foreach ($k in $envTokens.Keys) { $out = $out.Replace($k, [string]$envTokens[$k]) }
+    return $out
+}
 
 if (-not (Test-Path -LiteralPath $Config)) { Write-Host "FEHLER: Config nicht gefunden: $Config"; exit 1 }
 $cfg = Import-PowerShellDataFile -LiteralPath $Config
+
+Write-Host ('Config gelesen: Items={0}  GitRepos={1}  Secrets={2}' -f @($cfg.Items).Count, @($cfg.GitRepos).Count, @($cfg.Secrets).Count)
 
 $modus = 'TROCKENLAUF (es wird NICHTS kopiert)'
 if ($Execute) { $modus = 'KOPIEREN' }
@@ -54,7 +68,8 @@ if ($cfg.GitRepos) {
     if (-not $git) { Say 'git nicht gefunden - Check uebersprungen' }
     else {
         foreach ($r in $cfg.GitRepos) {
-            $repo = Expand-Path $r
+            $repo = Resolve-BackupPath $r
+            if ([string]::IsNullOrWhiteSpace($repo)) { Say "  FEHLER: leerer Pfad (Rohwert: '$r')"; continue }
             if (-not (Test-Path -LiteralPath $repo)) { Say "  (fehlt) $repo"; continue }
             $g = @('-c', 'safe.directory=*', '-C', $repo)
             $st = @(& git @g status --short 2>$null)
@@ -73,15 +88,16 @@ Say ''
 Say '--- Ordner ---'
 $results = @()
 foreach ($item in $cfg.Items) {
-    $src = Expand-Path $item.Src
+    $src = Resolve-BackupPath ([string]$item.Src)
+    if ([string]::IsNullOrWhiteSpace($src)) { Say ("FEHLER: Quelle leer bei Eintrag '{0}' (Rohwert: '{1}') - uebersprungen" -f $item.Name, $item.Src); continue }
     $dst = Join-Path $Dest $item.Dest
     if (-not (Test-Path -LiteralPath $src)) { Say "UEBERSPRUNGEN (Quelle fehlt): $src"; continue }
 
     $ra = @($src, $dst)
     if ($item.Files) { foreach ($f in $item.Files) { $ra += $f } } else { $ra += '/E' }
     $ra += @('/COPY:DAT', '/DCOPY:DAT', '/R:2', '/W:2', '/FFT', '/XJ', '/NP', '/BYTES', '/NFL', '/NDL', '/NJH', '/MT:4')
-    if ($item.XD -and $item.XD.Count -gt 0) { $ra += '/XD'; foreach ($d in $item.XD) { $ra += (Expand-Path $d) } }
-    if ($item.XF -and $item.XF.Count -gt 0) { $ra += '/XF'; foreach ($f in $item.XF) { $ra += (Expand-Path $f) } }
+    if ($item.XD -and $item.XD.Count -gt 0) { $ra += '/XD'; foreach ($d in $item.XD) { $ra += (Resolve-BackupPath $d) } }
+    if ($item.XF -and $item.XF.Count -gt 0) { $ra += '/XF'; foreach ($f in $item.XF) { $ra += (Resolve-BackupPath $f) } }
     $ra += ('/UNILOG+:' + $roboLog)
     $ra += '/TEE'
 
@@ -113,7 +129,7 @@ if ($cfg.Secrets -and $cfg.Secrets.Count -gt 0) {
     Say '--- Secrets-Paket (7-Zip, AES-256, Dateinamen verschluesselt) ---'
     $paths = @()
     foreach ($p in $cfg.Secrets) {
-        $e = Expand-Path $p
+        $e = Resolve-BackupPath $p
         if (Test-Path -Path $e) { $paths += $e; Say "  enthalten: $e" } else { Say "  nicht gefunden: $e" }
     }
     $sz = @('C:\Program Files\7-Zip\7z.exe', 'C:\Program Files (x86)\7-Zip\7z.exe') | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
@@ -140,7 +156,7 @@ if ($Execute) {
     $lines = New-Object System.Collections.Generic.List[string]
     $fails = 0
     foreach ($item in $cfg.Items) {
-        $src = Expand-Path $item.Src
+        $src = Resolve-BackupPath $item.Src
         $dst = Join-Path $Dest $item.Dest
         if (-not (Test-Path -LiteralPath $dst)) { continue }
         Write-Host ("Hash: " + $item.Name)
